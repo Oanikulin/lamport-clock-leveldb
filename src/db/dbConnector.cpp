@@ -20,7 +20,7 @@ using namespace std::chrono_literals;
 dbConnector::dbConnector(YAMLConfig config)
 {
     selfId = config.getId();
-    seqCount = std::vector<leveldb::SequenceNumber>(config.getMaxReplicaId());
+    seqCount = std::vector<std::atomic<leveldb::SequenceNumber>>(config.getMaxReplicaId());
     std::string filename = config.getDbFile();
     leveldb::Options options;
     options.create_if_missing = true;
@@ -59,10 +59,7 @@ leveldb::SequenceNumber dbConnector::getMaxSeqForReplica(int id) {
 }
 
 leveldb::SequenceNumber dbConnector::sequenceNumberForReplica(int id) {
-    //better to rewrite mutex to atomics or at least sharded mutex
-    //but not now
-    std::lock_guard lock(mx);
-    return seqCount[id];
+    return seqCount[id].load(std::memory_order_acquire);
 }
 
 replyFormat dbConnector::put(std::string key, std::string value) {
@@ -79,10 +76,8 @@ replyFormat dbConnector::put(std::string key, std::string value) {
     if (!st.ok()) {
         return {"", st};
     }
-    {
-        std::lock_guard lock(mx);
-        seqCount[selfId] = seq;
-    }
+        
+    seqCount[selfId].store(seq, std::memory_order_release);
     return {generateLseqKey(seq, selfId), st};
 }
 
@@ -99,8 +94,7 @@ replyFormat dbConnector::remove(std::string key) {
     auto [secondSeq, st] = db->DeleteSequence(leveldb::WriteOptions(), generateLseqKey(seq, selfId));
 
     {
-        std::lock_guard lock(mx);
-        seqCount[selfId] = secondSeq;
+        seqCount[selfId].store(secondSeq, std::memory_order_release);
     }
     return {generateLseqKey(seq, selfId), st};
 }
@@ -170,11 +164,10 @@ leveldb::Status dbConnector::putBatch(const batchValues& keyValuePairs) {
         int replicaId = std::stoi(lseqToReplicaId(lseq));
         leveldb::SequenceNumber seq = lseqToSeq(lseq);
         batch.Put(FullKey(stampedKeyToRealKey(key), seq, replicaId).getFullKey(), value);
-        {
-            std::lock_guard lk(mx);
-            //if the order is wrong it is not the problem of method
-            seqCount[replicaId] = std::max(seqCount[replicaId], seq);
-        }
+        uint64_t current_id = seqCount[replicaId].load(std::memory_order_acquire);
+        while(current_id < seq &&
+            ! seqCount[replicaId].compare_exchange_weak(current_id, seq, std::memory_order_acq_rel))
+        {}
     }
     leveldb::Status s = db->Write(leveldb::WriteOptions(), &batch);
     return s;

@@ -75,8 +75,8 @@ protected:
     leveldb::SequenceNumber getMaxSeqForReplica(int id);
 
 private:
-    std::mutex mx;
-    std::vector<leveldb::SequenceNumber> seqCount;
+    static_assert(std::is_same_v<leveldb::SequenceNumber, uint64_t>, "Refusing to build with different underlying sequence number");
+    std::vector<std::atomic<leveldb::SequenceNumber>> seqCount;
     leveldb::DB* db{};
 
     int selfId;
