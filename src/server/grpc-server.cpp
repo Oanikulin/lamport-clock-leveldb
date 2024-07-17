@@ -54,7 +54,7 @@ Status LSeqDatabaseImpl::SeekGet(ServerContext* context, const SeekGetRequest* r
     if (!res.response_status.ok()) {
         return {grpc::StatusCode::UNAVAILABLE, res.response_status.ToString()};
     }
-    for (auto item : res.values) {
+    for (const auto& item : res.values) {
         auto proto_item = response->add_items();
         proto_item->set_lseq(item.lseq);
         proto_item->set_key(dbConnector::stampedKeyToRealKey(item.key));
@@ -138,7 +138,7 @@ DBItems DumpBatch(dbConnector* database, const std::string& lseq) {
         return {};
     }
     DBItems batch;
-    for (auto item : res.values) {
+    for (const auto& item : res.values) {
         auto proto_item = batch.add_items();
         proto_item->set_lseq(item.lseq);
         proto_item->set_key(item.key);
@@ -168,7 +168,7 @@ void SyncLoop(const YAMLConfig& config, dbConnector* database) {
     std::iota(replicaIds.begin(), replicaIds.end(), static_cast<size_t>(0));
     std::iota(syncOrder.begin(), syncOrder.end(), static_cast<size_t>(0));
 
-    // Shuffle replicas for sync to avoid a lot of mutex blocking
+    // Shuffle replicas for sync to reduce per-node load
     std::random_device rd;
     std::mt19937 rnd(rd());
 
