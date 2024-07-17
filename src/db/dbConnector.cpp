@@ -1,14 +1,12 @@
 #include "dbConnector.hpp"
 
-#include <chrono>
 #include <string>
-#include <iostream>
 #include <iomanip>
 #include <thread>
 #include <utility>
 #include <vector>
-#include <variant>
 
+#include "fullKey.hpp"
 #include "leveldb/db.h"
 #include "leveldb/write_batch.h"
 #include "src/utils/yamlConfig.hpp"
@@ -21,21 +19,19 @@ dbConnector::dbConnector(YAMLConfig config)
 {
     selfId = config.getId();
     seqCount = std::vector<std::atomic<leveldb::SequenceNumber>>(config.getMaxReplicaId());
-    std::string filename = config.getDbFile();
     leveldb::Options options;
     options.create_if_missing = true;
     options.comparator = &(leveldb::GLOBAL_COMPARATOR);
-    db = nullptr;
-    leveldb::Status status = leveldb::DB::Open(options, filename, &db);
-    assert(status.ok());
+    leveldb::DB* raw_db;
+    leveldb::Status status = leveldb::DB::Open(options,  config.getDbFile(), &raw_db);
+    if(!status.ok()) {
+        throw std::runtime_error("failed to open leveldb");
+    }
+    db.reset(raw_db);
+
     for (int i = 0; i < config.getMaxReplicaId(); ++i) {
         seqCount[i] = getMaxSeqForReplica(i);
     }
-}
-
-dbConnector::~dbConnector()
-{
-    delete db;
 }
 
 leveldb::SequenceNumber dbConnector::getMaxSeqForReplica(int id) {
@@ -82,7 +78,7 @@ replyFormat dbConnector::put(std::string key, std::string value) {
 }
 
 replyFormat dbConnector::remove(std::string key) {
-    std::string realKey = generateNormalKey(std::move(key), selfId);
+    std::string realKey = generateNormalKey(key, selfId);
     auto [seq, s] = db->DeleteSequence(leveldb::WriteOptions(), realKey);
     if (!s.ok()) {
         return {"", s};
@@ -92,16 +88,16 @@ replyFormat dbConnector::remove(std::string key) {
         return {"", intermediateStatus};
     }
     auto [secondSeq, st] = db->DeleteSequence(leveldb::WriteOptions(), generateLseqKey(seq, selfId));
-
-    {
-        seqCount[selfId].store(secondSeq, std::memory_order_release);
-    }
+    seqCount[selfId].store(secondSeq, std::memory_order_release);
+    
     return {generateLseqKey(seq, selfId), st};
 }
 
 pureReplyValue dbConnector::get(std::string key) {
+    static constexpr int kMaxReadRetryCount = 100;
+
     int cnt = 0;
-    std::string realKey = generateNormalKey(std::move(key), selfId);
+    std::string realKey = generateNormalKey(key, selfId);
     std::string lseqKey = generateGetseqKey(realKey);
     std::string subSearchKey;
 
@@ -110,8 +106,7 @@ pureReplyValue dbConnector::get(std::string key) {
         ++cnt;
         leveldb::ReadOptions options;
         options.snapshot = db->GetSnapshot();
-        //MAXREAD constant
-        if (cnt > 100) {
+        if (cnt > kMaxReadRetryCount) {
             return {"", leveldb::Status::IOError("Unsuccessfully read. Retry when db load decreases"), std::string()};
         }
         std::string value;
@@ -139,10 +134,11 @@ pureReplyValue dbConnector::get(std::string key) {
 pureReplyValue dbConnector::get(std::string key, int id) {
     if (id == selfId)
         return get(std::move(key));
+
     std::string res;
     leveldb::ReadOptions options;
     options.snapshot = db->GetSnapshot();
-    std::string realKey = generateNormalKey(std::move(key), id);
+    std::string realKey = generateNormalKey(key, id);
     auto [seq, s] = db->GetSequence(options, realKey, &res);
     if (!s.ok()) {
         return {"", s, ""};
@@ -198,7 +194,7 @@ replyBatchFormat dbConnector::getValuesForKey(const std::string& key, leveldb::S
     }
     leveldb::Status status = it->status();
     db->ReleaseSnapshot(options.snapshot);
-    return {status, res};
+    return {res, status};
 }
 
 replyBatchFormat dbConnector::getAllValuesForKey(const std::string& key, int id, int limit, LSEQ_COMPARE isGreater) {
@@ -223,18 +219,18 @@ replyBatchFormat dbConnector::getByLseq(std::string lseq, int limit, LSEQ_COMPAR
         if (limit != -1)
             ++cnt;
         int replicaId = std::stoi(lseqToReplicaId(it->key().ToString()));
-        std::string realKey = FullKey(stampedKeyToRealKey(it->value().ToString()), lseqToSeq(it->key().ToString()), replicaId).getFullKey();//it->value().ToString();
+        std::string realKey = FullKey(stampedKeyToRealKey(it->value().ToString()), lseqToSeq(it->key().ToString()), replicaId).getFullKey();
         std::string realValue;
         auto s = db->Get(options, realKey, &realValue);
         if (!s.ok()) {
             db->ReleaseSnapshot(options.snapshot);
-            return {s, res};
+            return {res, s};
         }
         res.push_back({it->key().ToString(), it->value().ToString(), realValue});
     }
     leveldb::Status status = it->status();
     db->ReleaseSnapshot(options.snapshot);
-    return {status, res};
+    return {res, status};
 }
 
 std::string dbConnector::generateLseqKey(leveldb::SequenceNumber seq, int id) {
@@ -244,30 +240,27 @@ std::string dbConnector::generateLseqKey(leveldb::SequenceNumber seq, int id) {
 }
 
 std::string dbConnector::stampedKeyToRealKey(const std::string& stampedKey) {
-    return stampedKey.substr(10);
+    return stampedKey.substr(FullKey::kReplicaIdLength);
 }
 
-std::string dbConnector::generateNormalKey(std::string key, int id) {
-    return idToString(id) + std::move(key);
+std::string dbConnector::generateNormalKey(const std::string& key, int id) {
+    return idToString(id) + key;
 }
 
 std::string dbConnector::idToString(int id) {
     std::stringstream ss;
-    //id - up to 256^3
-    ss << std::setw(10) << std::setfill('0') << id;
+    ss << std::setw(FullKey::kReplicaIdLength) << std::setfill('0') << id;
     return ss.str();
 }
 
 std::string dbConnector::seqToString(leveldb::SequenceNumber seq) {
     std::stringstream ss;
-    //id - up to 256^3
-    ss << std::setw(15) << std::setfill('0') << seq;
+    ss << std::setw(FullKey::kSeqNumberLength) << std::setfill('0') << seq;
     return ss.str();
 }
 
-std::string dbConnector::generateGetseqKey(std::string realKey) {
-    realKey[0] = '@';
-    return realKey;
+std::string dbConnector::generateGetseqKey(const std::string& realKey) {
+    return std::string("@") + realKey.substr(1);
 }
 
 std::string dbConnector::lseqToReplicaId(const std::string& lseq) {
@@ -275,5 +268,5 @@ std::string dbConnector::lseqToReplicaId(const std::string& lseq) {
 }
 
 leveldb::SequenceNumber dbConnector::lseqToSeq(const std::string& lseq) {
-    return std::stoll(lseq.substr(10));
+    return std::stoll(lseq.substr(FullKey::kReplicaIdLength));
 }

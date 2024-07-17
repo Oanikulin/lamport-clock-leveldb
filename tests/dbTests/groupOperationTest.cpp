@@ -34,55 +34,55 @@ TEST_F(groupOperationTest, baseGroupInsert) {
         {dbConnector::generateLseqKey(16, 1), dbConnector::generateNormalKey("abc", 1), "valc"},
         {dbConnector::generateLseqKey(19, 3), dbConnector::generateNormalKey("ab", 3), "val3"}
     }).ok());
-    EXPECT_EQ(std::get<2>(db.get("ab", 1)), "val");
-    EXPECT_EQ(std::get<2>(db.get("ab2", 1)), "val2");
-    EXPECT_EQ(std::get<2>(db.get("abc", 1)), "valc");
-    EXPECT_EQ(std::get<2>(db.get("ab", 3)), "val3");
+    EXPECT_EQ(db.get("ab", 1).value, "val");
+    EXPECT_EQ(db.get("ab2", 1).value, "val2");
+    EXPECT_EQ(db.get("abc", 1).value, "valc");
+    EXPECT_EQ(db.get("ab", 3).value, "val3");
     EXPECT_EQ(16, db.sequenceNumberForReplica(1));
     EXPECT_EQ(19, db.sequenceNumberForReplica(3));
-    EXPECT_TRUE(std::get<1>(db.get("ab", 2)).IsNotFound());
+    EXPECT_TRUE(db.get("ab", 2).response_status.IsNotFound());
 }
 
 TEST_F(groupOperationTest, lseqSeekNormalPut) {
-    std::string firstLseq = db.put("valuekey", "valuevalue").first;
+    std::string firstLseq = db.put("valuekey", "valuevalue").lseq;
 
     replyBatchFormat repl = db.getByLseq(dbConnector::lseqToSeq(firstLseq), 2, 1);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 1);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "valuevalue");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 1);
+    EXPECT_EQ(repl.values[0].value, "valuevalue");
 
     repl = db.getByLseq(firstLseq, 1);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 1);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "valuevalue");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 1);
+    EXPECT_EQ(repl.values[0].value, "valuevalue");
 
     repl = db.getByLseq(firstLseq);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_GE(repl.second.size(), 1);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "valuevalue");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_GE(repl.values.size(), 1);
+    EXPECT_EQ(repl.values[0].value, "valuevalue");
 
-    std::string secondLseq = db.put("valuekey2", "valuevalue2").first;
+    std::string secondLseq = db.put("valuekey2", "valuevalue2").lseq;
 
     repl = db.getByLseq(dbConnector::lseqToSeq(firstLseq), 2, 2);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 2);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "valuevalue");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "valuevalue2");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 2);
+    EXPECT_EQ(repl.values[0].value, "valuevalue");
+    EXPECT_EQ(repl.values[1].value, "valuevalue2");
 
     repl = db.getByLseq(firstLseq, 2);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 2);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "valuevalue");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "valuevalue2");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 2);
+    EXPECT_EQ(repl.values[0].value, "valuevalue");
+    EXPECT_EQ(repl.values[1].value, "valuevalue2");
 
     repl = db.getByLseq(secondLseq, 1);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 1);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "valuevalue2");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 1);
+    EXPECT_EQ(repl.values[0].value, "valuevalue2");
 
     repl = db.getByLseq(0, 2, 1);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_GE(repl.second.size(), 2);
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_GE(repl.values.size(), 2);
 }
 
 TEST_F(groupOperationTest, lseqSeek) {
@@ -93,33 +93,33 @@ TEST_F(groupOperationTest, lseqSeek) {
         {dbConnector::generateLseqKey(400, 2), dbConnector::generateNormalKey("abcd", 2), "val4"}
     }).ok());
     replyBatchFormat repl = db.getByLseq(100, 2);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 4);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "val");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "val2");
-    EXPECT_EQ(std::get<2>(repl.second[2]), "val3");
-    EXPECT_EQ(std::get<2>(repl.second[3]), "val4");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 4);
+    EXPECT_EQ(repl.values[0].value, "val");
+    EXPECT_EQ(repl.values[1].value, "val2");
+    EXPECT_EQ(repl.values[2].value, "val3");
+    EXPECT_EQ(repl.values[3].value, "val4");
 
     repl = db.getByLseq(101, 2);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 3);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "val2");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "val3");
-    EXPECT_EQ(std::get<2>(repl.second[2]), "val4");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 3);
+    EXPECT_EQ(repl.values[0].value, "val2");
+    EXPECT_EQ(repl.values[1].value, "val3");
+    EXPECT_EQ(repl.values[2].value, "val4");
 
     repl = db.getByLseq(100, 2, -1, dbConnector::LSEQ_COMPARE::GREATER);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 3);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "val2");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "val3");
-    EXPECT_EQ(std::get<2>(repl.second[2]), "val4");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 3);
+    EXPECT_EQ(repl.values[0].value, "val2");
+    EXPECT_EQ(repl.values[1].value, "val3");
+    EXPECT_EQ(repl.values[2].value, "val4");
 
     repl = db.getByLseq(100, 1);
-    EXPECT_TRUE(repl.first.ok());
-    for (auto res : repl.second) {
-        std::cerr << std::get<0>(res) << " " << std::get<1>(res) << " " << std::get<2>(res) << std::endl;
+    EXPECT_TRUE(repl.response_status.ok());
+    for (auto res : repl.values) {
+        std::cerr <<res.lseq << " " << res.key << " " << res.value << std::endl;
     }
-    EXPECT_EQ(repl.second.size(), 0);
+    EXPECT_EQ(repl.values.size(), 0);
 }
 
 TEST_F(groupOperationTest, groupKeyGet) {
@@ -132,17 +132,17 @@ TEST_F(groupOperationTest, groupKeyGet) {
     }).ok());
 
     replyBatchFormat repl = db.getAllValuesForKey("abcde", 0);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 4);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "val");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "val5");
-    EXPECT_EQ(std::get<2>(repl.second[2]), "val2");
-    EXPECT_EQ(std::get<2>(repl.second[3]), "val3");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 4);
+    EXPECT_EQ(repl.values[0].value, "val");
+    EXPECT_EQ(repl.values[1].value, "val5");
+    EXPECT_EQ(repl.values[2].value, "val2");
+    EXPECT_EQ(repl.values[3].value, "val3");
 
     repl = db.getValuesForKey("abcde", 1001, 12);
-    EXPECT_TRUE(repl.first.ok());
-    EXPECT_EQ(repl.second.size(), 3);
-    EXPECT_EQ(std::get<2>(repl.second[0]), "val5");
-    EXPECT_EQ(std::get<2>(repl.second[1]), "val2");
-    EXPECT_EQ(std::get<2>(repl.second[2]), "val3");
+    EXPECT_TRUE(repl.response_status.ok());
+    EXPECT_EQ(repl.values.size(), 3);
+    EXPECT_EQ(repl.values[0].value, "val5");
+    EXPECT_EQ(repl.values[1].value, "val2");
+    EXPECT_EQ(repl.values[2].value, "val3");
 }

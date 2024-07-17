@@ -18,8 +18,8 @@ TEST(restartDbTest, baseCorrectness) {
         std::string fileName = config.getDbFile();
         std::filesystem::remove_all(fileName);
         dbConnector db = dbConnector(config);
-        std::string firstLseq = db.put("aasgas", "bsagas").first;
-        secondLseq = db.put("gsagaa", "bsagas").first;
+        std::string firstLseq = db.put("aasgas", "bsagas").lseq;
+        secondLseq = db.put("gsagaa", "bsagas").lseq;
         EXPECT_TRUE(firstLseq<secondLseq);
     }
 

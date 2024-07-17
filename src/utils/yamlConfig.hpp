@@ -11,7 +11,7 @@ public:
 
     [[nodiscard]] int getId() const;
 
-    [[nodiscard]] std::string getDbFile() const;
+    [[nodiscard]] const std::string& getDbFile() const;
 
     [[nodiscard]] const std::vector<std::string>& getReplicas() const;
 

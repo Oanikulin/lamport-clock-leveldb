@@ -24,20 +24,20 @@ Status LSeqDatabaseImpl::GetValue(ServerContext* context, const ReplicaKey* requ
     } else {
         res = db->get(request->key(), request->replica_id());
     }
-    if (!std::get<1>(res).ok()) {
-        return {grpc::StatusCode::UNAVAILABLE, std::get<1>(res).ToString()};
+    if (!res.response_status.ok()) {
+        return {grpc::StatusCode::UNAVAILABLE, res.response_status.ToString()};
     }
-    response->set_lseq(std::get<0>(res));
-    response->set_value(std::get<2>(res));
+    response->set_lseq(res.lseq);
+    response->set_value(res.value);
     return Status::OK;
 }
 
 Status LSeqDatabaseImpl::Put(ServerContext* context, const PutRequest* request, LSeq* response) {
     auto res = db->put(request->key(), request->value());
-    if (!std::get<1>(res).ok()) {
-        return {grpc::StatusCode::ABORTED, res.second.ToString()};
+    if (!res.response_status.ok()) {
+        return {grpc::StatusCode::ABORTED, res.response_status.ToString()};
     }
-    response->set_lseq(res.first);
+    response->set_lseq(res.lseq);
     return Status::OK;
 }
 
@@ -51,14 +51,14 @@ Status LSeqDatabaseImpl::SeekGet(ServerContext* context, const SeekGetRequest* r
         res = db->getByLseq(lseq, limit, dbConnector::LSEQ_COMPARE::GREATER);
     }
 
-    if (!res.first.ok()) {
-        return {grpc::StatusCode::UNAVAILABLE, res.first.ToString()};
+    if (!res.response_status.ok()) {
+        return {grpc::StatusCode::UNAVAILABLE, res.response_status.ToString()};
     }
-    for (auto item : res.second) {
+    for (auto item : res.values) {
         auto proto_item = response->add_items();
-        proto_item->set_lseq(std::get<0>(item));
-        proto_item->set_key(dbConnector::stampedKeyToRealKey(std::get<1>(item)));
-        proto_item->set_value(std::get<2>(item));
+        proto_item->set_lseq(item.lseq);
+        proto_item->set_key(dbConnector::stampedKeyToRealKey(item.key));
+        proto_item->set_value(item.value);
     }
     return Status::OK;
 }
@@ -96,7 +96,7 @@ Status LSeqDatabaseImpl::SyncPut_(ServerContext* context, const DBItems* request
     batchValues batch;
     batch.reserve(request->items_size());
     for (const auto& item : request->items()) {
-        batch.emplace_back(item.lseq(), item.key(), item.value());
+        batch.emplace_back(batchValue{item.lseq(), item.key(), item.value()});
     }
     auto res = db->putBatch(batch);
     if (!res.ok()) {
@@ -134,15 +134,15 @@ std::string GetMaxLSeqFromRemoteReplica(const std::unique_ptr<LSeqDatabase::Stub
 
 DBItems DumpBatch(dbConnector* database, const std::string& lseq) {
     auto res = database->getByLseq(lseq);
-    if (!res.first.ok()) {
+    if (!res.response_status.ok()) {
         return {};
     }
     DBItems batch;
-    for (auto item : res.second) {
+    for (auto item : res.values) {
         auto proto_item = batch.add_items();
-        proto_item->set_lseq(std::get<0>(item));
-        proto_item->set_key(std::get<1>(item));
-        proto_item->set_value(std::get<2>(item));
+        proto_item->set_lseq(item.lseq);
+        proto_item->set_key(item.key);
+        proto_item->set_value(item.value);
     }
     return batch;
 }

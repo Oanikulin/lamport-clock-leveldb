@@ -28,7 +28,8 @@ int YAMLConfig::getId() const {
 int YAMLConfig::getMaxReplicaId() const {
     return maxReplicaId;
 }
-std::string YAMLConfig::getDbFile() const {
+
+const std::string& YAMLConfig::getDbFile() const {
     return dbFilename;
 }
 
