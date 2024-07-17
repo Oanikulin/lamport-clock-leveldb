@@ -3,7 +3,7 @@
 #include <iostream>
 #include <string>
 #include <vector>
-#include <tuple>
+#include <thread>
 #include <filesystem>
 
 #include "src/utils/yamlConfig.hpp"
@@ -80,5 +80,50 @@ TEST_F(baseDbTest, getLSEQKey) {
 
     lseq = db.put("a4", "c4").lseq;
     EXPECT_EQ(db.get("a4").lseq, lseq);
+}
 
+TEST_F(baseDbTest, multithreadPutsAndGets) {
+    constexpr int kKeyPerThreadCount = 100;
+    constexpr int kThreadCount = 8;
+    constexpr int kKeyCount = kKeyPerThreadCount * kThreadCount;
+
+    std::vector<std::string> keys(kKeyCount);
+    std::vector<std::string> values(kKeyCount);
+    std::vector<std::string> lseqs(kKeyCount);
+    for (int i = 0; i < kKeyCount; ++i) {
+        keys[i] = std::to_string(i);
+        values[i] = std::to_string(2 * i);
+    }
+    std::vector<std::thread> writer_threads;
+    for (int i = 0; i < kThreadCount; ++i) {
+        std::thread writer([this, i, &keys, &values, &lseqs]() {
+            for (int j = i * kKeyPerThreadCount; j < (i + 1) * kKeyPerThreadCount; ++j) {
+                auto put_result = db.put(keys[j], values[j]);
+                EXPECT_TRUE(put_result.response_status.ok());
+                lseqs[j] = put_result.lseq;
+            }
+        });
+        writer_threads.emplace_back(std::move(writer));
+    }
+
+    for (auto& thread : writer_threads) {
+        thread.join();
+    }
+
+    std::vector<std::thread> reader_threads;
+    for (int i = 0; i < kThreadCount; ++i) {
+        std::thread reader([this, i, &keys, &values, &lseqs]() {
+            for (int j = i * kKeyPerThreadCount; j < (i + 1) * kKeyPerThreadCount; ++j) {
+                auto get_result = db.get(keys[j]);
+                EXPECT_EQ(get_result.lseq, lseqs[j]);
+                EXPECT_TRUE(get_result.response_status.ok());
+                EXPECT_EQ(get_result.value, values[j]);
+            }
+        });
+        reader_threads.emplace_back(std::move(reader));
+    }
+
+    for (auto& thread : reader_threads) {
+        thread.join();
+    }
 }
