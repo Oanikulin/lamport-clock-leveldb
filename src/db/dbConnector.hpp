@@ -3,6 +3,7 @@
 #include <atomic>
 #include <string>
 #include <utility>
+#include <mutex>
 #include <vector>
 
 #include "leveldb/db.h"
@@ -88,7 +89,10 @@ protected:
 
     leveldb::SequenceNumber getMaxSeqForReplica(int id);
 
+    void updateReplicaId(leveldb::SequenceNumber seq, size_t replicaId);
+
 private:
+    std::mutex mx;
     static_assert(std::is_same_v<leveldb::SequenceNumber, uint64_t>, "Refusing to build with different underlying sequence number");
     std::vector<std::atomic<leveldb::SequenceNumber>> seqCount;
     std::unique_ptr<leveldb::DB> db;

@@ -5,6 +5,7 @@
 #include <vector>
 #include <filesystem>
 #include <tuple>
+#include <thread>
 
 #include "src/utils/yamlConfig.hpp"
 #include "src/utils/grpcConfig.hpp"
@@ -145,4 +146,48 @@ TEST_F(groupOperationTest, groupKeyGet) {
     EXPECT_EQ(repl.values[0].value, "val5");
     EXPECT_EQ(repl.values[1].value, "val2");
     EXPECT_EQ(repl.values[2].value, "val3");
+}
+
+TEST_F(groupOperationTest, multithreadBatchPut) {
+    constexpr int kKeyPerThreadCount = 100;
+    constexpr int kThreadCount = 8;
+    constexpr int kKeyCount = kKeyPerThreadCount * kThreadCount;
+
+    std::vector<std::string> keys(kKeyCount);
+    std::vector<std::string> values(kKeyCount);
+    std::vector<std::string> lseqs(kKeyCount);
+    for (int i = 0; i < kKeyCount; ++i) {
+        keys[i] = std::to_string(i);
+        values[i] = std::to_string(2 * i);
+        lseqs[i] = dbConnector::generateLseqKey(10000 + 100 * i, 1);
+    }
+    
+    std::vector<batchValues> batches(kThreadCount);
+    for (int i = 0; i < kThreadCount; ++i) {
+        for (int j = i * kKeyPerThreadCount; j < (i + 1) * kKeyPerThreadCount; ++j) {
+            batches[i].push_back({lseqs[j], dbConnector::generateNormalKey(keys[j], 1), values[j]});
+        }
+    }
+
+    std::vector<std::thread> writer_threads;
+    for (int i = 0; i < kThreadCount; ++i) {
+        std::thread writer([this, i, batch = batches[i]]() {
+            EXPECT_TRUE(db.putBatch(batch).ok());
+        });
+        writer_threads.emplace_back(std::move(writer));
+    }
+
+    for (auto& thread : writer_threads) {
+        thread.join();
+    }
+
+    for (int i = 0; i < kKeyCount; ++i) {
+        auto get_result = db.get(keys[i], 1);
+        if (!get_result.response_status.ok()) {
+            std::cerr << get_result.response_status.ToString() << std::endl;
+        }
+        EXPECT_TRUE(get_result.response_status.ok());
+        EXPECT_EQ(get_result.lseq, lseqs[i]);
+        EXPECT_EQ(get_result.value, values[i]);
+    }
 }

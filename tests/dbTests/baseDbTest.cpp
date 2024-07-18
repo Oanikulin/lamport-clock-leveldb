@@ -127,3 +127,50 @@ TEST_F(baseDbTest, multithreadPutsAndGets) {
         thread.join();
     }
 }
+
+TEST_F(baseDbTest, multithreadRemovalsAndGets) {
+    constexpr int kKeyPerThreadCount = 100;
+    constexpr int kThreadCount = 8;
+    constexpr int kKeyCount = kKeyPerThreadCount * kThreadCount;
+
+    std::vector<std::string> keys(kKeyCount);
+    std::vector<std::string> values(kKeyCount);
+    std::vector<std::string> lseqs(kKeyCount);
+    for (int i = 0; i < kKeyCount; ++i) {
+        keys[i] = "ff" + std::to_string(i);
+        values[i] = "ff" + std::to_string(2 * i);
+        auto put_result = db.put(keys[i], values[i]);
+        EXPECT_TRUE(put_result.response_status.ok());
+        lseqs[i] = put_result.lseq;
+    }
+    std::vector<std::thread> remove_threads;
+    for (int i = 0; i < kThreadCount; ++i) {
+        std::thread remover([this, i, &keys, &values, &lseqs]() {
+            for (int j = i * kKeyPerThreadCount; j < (i + 1) * kKeyPerThreadCount; j += 2) {
+                auto remove_result = db.remove(keys[j]);
+                EXPECT_TRUE(remove_result.response_status.ok());
+            }
+        });
+        remove_threads.emplace_back(std::move(remover));
+    }
+
+    for (auto& thread : remove_threads) {
+        thread.join();
+    }
+
+    bool is_expected = false;
+    for (int i = 0; i < kKeyCount; ++i) {
+        auto get_result = db.get(keys[i]);
+        if (is_expected) {
+            if (!get_result.response_status.ok()) {
+                std::cerr << get_result.response_status.ToString() << std::endl;
+            }
+            EXPECT_TRUE(get_result.response_status.ok());
+            EXPECT_EQ(get_result.lseq, lseqs[i]);
+            EXPECT_EQ(get_result.value, values[i]);
+        } else {
+            EXPECT_TRUE(get_result.response_status.IsNotFound());
+        }
+        is_expected ^= (true);
+    }
+}

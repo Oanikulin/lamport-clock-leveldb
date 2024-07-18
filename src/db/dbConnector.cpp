@@ -1,10 +1,12 @@
 #include "dbConnector.hpp"
 
+#include <mutex>
 #include <string>
 #include <iomanip>
 #include <thread>
 #include <utility>
 #include <vector>
+#include<iostream>
 
 #include "fullKey.hpp"
 #include "leveldb/db.h"
@@ -54,6 +56,13 @@ leveldb::SequenceNumber dbConnector::getMaxSeqForReplica(int id) {
     return seq;
 }
 
+void dbConnector::updateReplicaId(leveldb::SequenceNumber seq, size_t replicaId) {
+    uint64_t current_id = seqCount[replicaId].load();
+    while(current_id < seq &&
+        !seqCount[replicaId].compare_exchange_weak(current_id, seq))
+    {}
+}
+
 leveldb::SequenceNumber dbConnector::sequenceNumberForReplica(int id) {
     return seqCount[id].load(std::memory_order_acquire);
 }
@@ -73,11 +82,12 @@ replyFormat dbConnector::put(std::string key, std::string value) {
         return {"", st};
     }
         
-    seqCount[selfId].store(seq, std::memory_order_release);
+    updateReplicaId(seq, selfId);
     return {generateLseqKey(seq, selfId), st};
 }
 
 replyFormat dbConnector::remove(std::string key) {
+    std::lock_guard lg(mx);
     std::string realKey = generateNormalKey(key, selfId);
     auto [seq, s] = db->DeleteSequence(leveldb::WriteOptions(), realKey);
     if (!s.ok()) {
@@ -88,7 +98,7 @@ replyFormat dbConnector::remove(std::string key) {
         return {"", intermediateStatus};
     }
     auto [secondSeq, st] = db->DeleteSequence(leveldb::WriteOptions(), generateLseqKey(seq, selfId));
-    seqCount[selfId].store(secondSeq, std::memory_order_release);
+    updateReplicaId(secondSeq, selfId);
     
     return {generateLseqKey(seq, selfId), st};
 }
@@ -160,10 +170,7 @@ leveldb::Status dbConnector::putBatch(const batchValues& keyValuePairs) {
         int replicaId = std::stoi(lseqToReplicaId(lseq));
         leveldb::SequenceNumber seq = lseqToSeq(lseq);
         batch.Put(FullKey(stampedKeyToRealKey(key), seq, replicaId).getFullKey(), value);
-        uint64_t current_id = seqCount[replicaId].load(std::memory_order_acquire);
-        while(current_id < seq &&
-            ! seqCount[replicaId].compare_exchange_weak(current_id, seq, std::memory_order_acq_rel))
-        {}
+        updateReplicaId(seq, replicaId);
     }
     leveldb::Status s = db->Write(leveldb::WriteOptions(), &batch);
     return s;
