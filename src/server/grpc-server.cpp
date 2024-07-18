@@ -13,6 +13,24 @@
 
 using namespace std::chrono_literals;
 
+using lseqdb::LSeqDatabase;
+
+using grpc::Channel;
+using grpc::ClientContext;
+using grpc::ClientReaderWriter;
+using grpc::ServerContext;
+using grpc::Status;
+
+using lseqdb::Config;
+using lseqdb::DBItems;
+using lseqdb::EventsRequest;
+using lseqdb::LSeq;
+using lseqdb::PutRequest;
+using lseqdb::ReplicaKey;
+using lseqdb::SeekGetRequest;
+using lseqdb::SyncGetRequest;
+using lseqdb::Value;
+
 LSeqDatabaseImpl::LSeqDatabaseImpl(const YAMLConfig& config, dbConnector* database) : db(database), cfg(config) {
     syncMxs_.resize(config.getMaxReplicaId());
 }

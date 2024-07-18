@@ -42,7 +42,6 @@ public:
     }
 
 private:
-
     std::string key;
     std::string raw_key;
     int keyLength;

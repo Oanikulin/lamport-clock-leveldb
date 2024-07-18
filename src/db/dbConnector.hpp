@@ -3,7 +3,6 @@
 #include <atomic>
 #include <string>
 #include <utility>
-#include <mutex>
 #include <vector>
 
 #include "leveldb/db.h"
@@ -43,7 +42,7 @@ public:
 
     enum class LSEQ_COMPARE {GREATER_EQUAL, GREATER};
 
-    explicit dbConnector(YAMLConfig config);
+    explicit dbConnector(const YAMLConfig& config);
 
     dbConnector(const dbConnector&) = delete;
 
@@ -69,30 +68,26 @@ public:
 
     leveldb::SequenceNumber sequenceNumberForReplica(int id);
 
-    static std::string generateGetseqKey(const std::string& realKey);
-
     static std::string generateLseqKey(leveldb::SequenceNumber seq, int id);
 
     static std::string stampedKeyToRealKey(const std::string& stampedKey);
 
     static std::string generateNormalKey(const std::string& key, int id);
 
-    static std::string idToString(int id);
-
     static std::string lseqToReplicaId(const std::string& lseq);
 
     static leveldb::SequenceNumber lseqToSeq(const std::string& lseq);
 
-    static std::string seqToString(leveldb::SequenceNumber seq);
-
 protected:
+    static std::string idToString(int id);
+
+    static std::string generateGetseqKey(const std::string& realKey);
 
     leveldb::SequenceNumber getMaxSeqForReplica(int id);
 
     void updateReplicaId(leveldb::SequenceNumber seq, size_t replicaId);
 
 private:
-    std::mutex mx;
     static_assert(std::is_same_v<leveldb::SequenceNumber, uint64_t>, "Refusing to build with different underlying sequence number");
     std::vector<std::atomic<leveldb::SequenceNumber>> seqCount;
     std::unique_ptr<leveldb::DB> db;

@@ -18,39 +18,21 @@
 
 #include "src/db/dbConnector.hpp"
 
-using lseqdb::LSeqDatabase;
-
-using grpc::Channel;
-using grpc::ClientContext;
-using grpc::ClientReaderWriter;
-using grpc::ServerContext;
-using grpc::Status;
-
-using lseqdb::Config;
-using lseqdb::DBItems;
-using lseqdb::EventsRequest;
-using lseqdb::LSeq;
-using lseqdb::PutRequest;
-using lseqdb::ReplicaKey;
-using lseqdb::SeekGetRequest;
-using lseqdb::SyncGetRequest;
-using lseqdb::Value;
-
-class LSeqDatabaseImpl final : public LSeqDatabase::Service {
+class LSeqDatabaseImpl final : public lseqdb::LSeqDatabase::Service {
 public:
     LSeqDatabaseImpl(const YAMLConfig& config, dbConnector* database);
 public:
-    Status GetValue(ServerContext* context, const ReplicaKey* request, Value* response) override;
-    Status Put(ServerContext* context, const PutRequest* request, LSeq* response) override;
-    Status SeekGet(ServerContext* context, const SeekGetRequest* request, DBItems* response) override;
-    Status GetReplicaEvents(ServerContext* context, const EventsRequest* request, DBItems* response) override;
+    grpc::Status GetValue(grpc::ServerContext* context, const lseqdb::ReplicaKey* request, lseqdb::Value* response) override;
+    grpc::Status Put(grpc::ServerContext* context, const lseqdb::PutRequest* request, lseqdb::LSeq* response) override;
+    grpc::Status SeekGet(grpc::ServerContext* context, const lseqdb::SeekGetRequest* request, lseqdb::DBItems* response) override;
+    grpc::Status GetReplicaEvents(grpc::ServerContext* context, const lseqdb::EventsRequest* request, lseqdb::DBItems* response) override;
 
 public:
-    Status GetConfig(ServerContext* context, const ::google::protobuf::Empty*, Config* response) override;
+    grpc::Status GetConfig(grpc::ServerContext* context, const ::google::protobuf::Empty*, lseqdb::Config* response) override;
 
 public:
-    Status SyncGet_(ServerContext* context, const SyncGetRequest* request, LSeq* response) override;
-    Status SyncPut_(ServerContext* context, const DBItems* request, ::google::protobuf::Empty* response) override;
+    grpc::Status SyncGet_(grpc::ServerContext* context, const lseqdb::SyncGetRequest* request, lseqdb::LSeq* response) override;
+    grpc::Status SyncPut_(grpc::ServerContext* context, const lseqdb::DBItems* request, ::google::protobuf::Empty* response) override;
 private:
     std::deque<std::mutex> syncMxs_;
 

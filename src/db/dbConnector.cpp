@@ -1,6 +1,5 @@
 #include "dbConnector.hpp"
 
-#include <mutex>
 #include <string>
 #include <iomanip>
 #include <thread>
@@ -17,7 +16,7 @@
 
 using namespace std::chrono_literals;
 
-dbConnector::dbConnector(YAMLConfig config)
+dbConnector::dbConnector(const YAMLConfig& config)
 {
     selfId = config.getId();
     seqCount = std::vector<std::atomic<leveldb::SequenceNumber>>(config.getMaxReplicaId());
@@ -87,7 +86,6 @@ replyFormat dbConnector::put(std::string key, std::string value) {
 }
 
 replyFormat dbConnector::remove(std::string key) {
-    std::lock_guard lg(mx);
     std::string realKey = generateNormalKey(key, selfId);
     auto [seq, s] = db->DeleteSequence(leveldb::WriteOptions(), realKey);
     if (!s.ok()) {
@@ -241,9 +239,11 @@ replyBatchFormat dbConnector::getByLseq(std::string lseq, int limit, LSEQ_COMPAR
 }
 
 std::string dbConnector::generateLseqKey(leveldb::SequenceNumber seq, int id) {
+    std::stringstream stringSeq;
+    stringSeq << std::setw(FullKey::kSeqNumberLength) << std::setfill('0') << seq;
     std::string lseqNumber = idToString(id);
     lseqNumber[0] = '#';
-    return  lseqNumber + seqToString(seq);
+    return lseqNumber + stringSeq.str();
 }
 
 std::string dbConnector::stampedKeyToRealKey(const std::string& stampedKey) {
@@ -257,12 +257,6 @@ std::string dbConnector::generateNormalKey(const std::string& key, int id) {
 std::string dbConnector::idToString(int id) {
     std::stringstream ss;
     ss << std::setw(FullKey::kReplicaIdLength) << std::setfill('0') << id;
-    return ss.str();
-}
-
-std::string dbConnector::seqToString(leveldb::SequenceNumber seq) {
-    std::stringstream ss;
-    ss << std::setw(FullKey::kSeqNumberLength) << std::setfill('0') << seq;
     return ss.str();
 }
 
